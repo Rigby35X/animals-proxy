@@ -24,7 +24,7 @@ export type CognitoEntry = {
   AdditionalPhoto4?: CognitoFileRef | null;
 };
 
-const BASE = "https://www.cognitoforms.com/api/v1";
+const BASE = "https://www.cognitoforms.com/api";
 
 export async function fetchEntries(formId: string, apiKey: string): Promise<CognitoEntry[]> {
   const res = await fetch(`${BASE}/forms/${formId}/entries`, {
