@@ -157,7 +157,7 @@ async function stagedUploadsCreate(fileNames: string[]) {
 async function postFileToStagedTarget(target: any, bytes: Uint8Array) {
   const form = new FormData();
   for (const p of target.parameters) form.append(p.name, p.value);
-  form.append("file", new Blob([bytes]));
+  form.append("file", new Blob([new Uint8Array(bytes)]));
   const res = await fetch(target.url, { method: "POST", body: form as any });
   if (!res.ok) throw new Error(`Staged upload failed: ${res.status}`);
   return target.resourceUrl as string; // what we pass to productCreateMedia
