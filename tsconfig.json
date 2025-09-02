@@ -25,7 +25,7 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx"
-  ],
+, "pages/api/cognito/webhook.js", "pages/api/sync/run.js"  ],
   "exclude": [
     "node_modules"
   ]
