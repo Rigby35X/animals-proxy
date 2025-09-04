@@ -34,16 +34,32 @@ const BASE = "https://www.cognitoforms.com/api";
  * so your /api/sync/run endpoint shows exactly what went wrong (401/403/404/etc).
  */
 export async function fetchEntries(formId: string, apiKey: string): Promise<CognitoEntry[]> {
-  const r = await fetch(`${BASE}/forms/${formId}/entries`, {
-    headers: { Authorization: `Bearer ${apiKey}` }
+  // Try the most common endpoint format first
+  const url = `${BASE}/forms/${formId}/entries`;
+
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    }
   });
 
   if (!r.ok) {
     const body = await r.text().catch(() => "");
-    throw new Error(`Cognito fetch entries failed: ${r.status} ${body}`);
+    console.error(`Cognito API Error:`, {
+      url,
+      status: r.status,
+      statusText: r.statusText,
+      body,
+      headers: Object.fromEntries(r.headers.entries())
+    });
+    throw new Error(`Cognito fetch entries failed: ${r.status} ${r.statusText} - ${body}`);
   }
 
-  return (await r.json()) as CognitoEntry[];
+  const data = await r.json();
+  console.log(`Successfully fetched ${Array.isArray(data) ? data.length : 'unknown'} entries from Cognito`);
+  return data as CognitoEntry[];
 }
 
 /** Gather all file refs (main + up to 4 additional) from an entry */
