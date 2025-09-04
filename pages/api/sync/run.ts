@@ -1,7 +1,14 @@
+// pages/api/sync/run.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { fetchEntries } from "@/lib/cognito";
-import { setMetafields, upsertProduct, findProductByHandle, replaceImagesWithUrls, replaceImagesFromCognitoFiles } from "@/lib/shopify";
-import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "@/lib/map";
+import { fetchEntries } from "../../../lib/cognito";
+import {
+  setMetafields,
+  upsertProduct,
+  findProductByHandle,
+  replaceImagesWithUrls,
+  replaceImagesFromCognitoFiles
+} from "../../../lib/shopify";
+import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../lib/map";
 
 const FORM_ID = process.env.COGNITO_FORM_ID!;
 const COGNITO_API_KEY = process.env.COGNITO_API_KEY!;
@@ -10,11 +17,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     if (req.method !== "POST") return res.status(405).end();
 
+    // Basic env checks (return helpful error instead of crashing)
+    if (!FORM_ID || !COGNITO_API_KEY) {
+      return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
+    }
+
     const entries = await fetchEntries(FORM_ID, COGNITO_API_KEY);
 
     let processed = 0;
     for (const entry of entries) {
-      const name = entry.DogName || (entry as any).Name;
+      const name = (entry as any).DogName || (entry as any).Name;
       if (!name) continue;
 
       const handle = toHandle(name);
@@ -23,21 +35,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const id = await upsertProduct({
         id: existing?.id,
         title: name,
-        bodyHtml: entry.MyStory || "",
-        tags: tagsForCode(entry.Code),
+        bodyHtml: (entry as any).MyStory || "",
+        tags: tagsForCode((entry as any).Code),
         handle
       });
 
-      const metas = mapMetafields(entry);
+      const metas = mapMetafields(entry as any);
       if (metas.length) await setMetafields(id, metas);
 
-      const files = imageFileRefs(entry);
+      const files = imageFileRefs(entry as any);
       const urls = files.filter(f => !!f.Url).map(f => f.Url!) as string[];
 
       if (urls.length === files.length) {
         await replaceImagesWithUrls(id, urls);
       } else if (files.length) {
-        await replaceImagesFromCognitoFiles(id, files, COGNITO_API_KEY);
+        await replaceImagesFromCognitoFiles(id, files as any, COGNITO_API_KEY);
       }
 
       processed++;

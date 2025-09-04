@@ -1,7 +1,9 @@
+// lib/cognito.ts
+
 export type CognitoFileRef = {
-  Id?: number | string;       // some Cognito file payloads include Id
+  Id?: number | string;
   FileName?: string;
-  Url?: string;               // sometimes Cognito provides a direct URL
+  Url?: string; // some payloads include a direct URL
 };
 
 export type CognitoEntry = {
@@ -24,25 +26,27 @@ export type CognitoEntry = {
   AdditionalPhoto4?: CognitoFileRef | null;
 };
 
+// ✅ Correct base (no /v1)
 const BASE = "https://www.cognitoforms.com/api";
 
+/**
+ * Fetch all entries for a form. Throws with detailed status/body when Cognito errors,
+ * so your /api/sync/run endpoint shows exactly what went wrong (401/403/404/etc).
+ */
 export async function fetchEntries(formId: string, apiKey: string): Promise<CognitoEntry[]> {
-  const res = await fetch(`${BASE}/forms/${formId}/entries`, {
+  const r = await fetch(`${BASE}/forms/${formId}/entries`, {
     headers: { Authorization: `Bearer ${apiKey}` }
   });
-  if (!res.ok) throw new Error(`Cognito fetch entries failed: ${res.status}`);
-  // Cognito returns an array of entries with field internal names as keys
-  return (await res.json()) as CognitoEntry[];
+
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Cognito fetch entries failed: ${r.status} ${body}`);
+  }
+
+  return (await r.json()) as CognitoEntry[];
 }
 
-/**
- * Attempt to resolve public-ish URLs for images.
- * If Cognito already provides `Url`, we can use it directly with productCreateMedia.
- * If not, you can fall back to Shopify staged upload by first downloading bytes from Cognito.
- * For downloading bytes, you'll likely call a Files endpoint like:
- *   GET /files/{fileId}
- * with the same Bearer token; adapt as needed if your payload differs.
- */
+/** Gather all file refs (main + up to 4 additional) from an entry */
 export function collectFileRefs(entry: CognitoEntry): CognitoFileRef[] {
   const list: CognitoFileRef[] = [];
   if (entry.MainPhoto) list.push(entry.MainPhoto);
