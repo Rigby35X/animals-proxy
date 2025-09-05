@@ -13,31 +13,33 @@ import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../li
 const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
 const COGNITO_API_KEY = (process.env.COGNITO_API_KEY || "").trim();
 
-async function fetchEntriesWithFallback(): Promise<any[]> {
+// pages/api/sync/run.ts (only the fallback helper changed)
+async function fetchEntriesWithFallback(req: NextApiRequest): Promise<any[]> {
   try {
     return await fetchEntries(FORM_ID, COGNITO_API_KEY);
   } catch (e) {
-    // Fallback: call our own GET endpoint which you confirmed works
-    const origin =
-      process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : (process.env.PUBLIC_URL || "http://localhost:3000");
+    // Fallback: call our own GET endpoint on the SAME host that invoked this lambda
+    const host = req.headers["x-forwarded-host"] || req.headers.host || "";
+    const origin = `https://${host}`;
     const url = `${origin}/api/cognito/entries?page=1&pageSize=200`;
-    const r = await fetch(url);
+
+    const r = await fetch(url, { headers: { Accept: "application/json" } });
     const txt = await r.text();
     if (!r.ok) throw new Error(`entries fallback failed: ${r.status} ${txt}`);
     return JSON.parse(txt);
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req, res) {
   try {
     if (req.method !== "POST") return res.status(405).end();
     if (!FORM_ID || !COGNITO_API_KEY) {
       return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
     }
 
-    const entries = await fetchEntriesWithFallback();
+    const entries = await fetchEntriesWithFallback(req);
+    // ... rest of your upsert loop unchanged ...
+
 
     let processed = 0;
     for (const entry of entries) {
