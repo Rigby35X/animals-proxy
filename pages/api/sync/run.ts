@@ -1,5 +1,6 @@
 // pages/api/sync/run.ts
 import type { NextApiRequest, NextApiResponse } from "next";
+import { fetchEntries } from "../../../lib/cognito";
 import {
   setMetafields,
   upsertProduct,
@@ -11,40 +12,34 @@ import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../li
 
 const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
 const COGNITO_API_KEY = (process.env.COGNITO_API_KEY || "").trim();
-const COGNITO_API_BASE = (process.env.COGNITO_API_BASE || "https://www.cognitoforms.com/api").trim();
 
-async function fetchEntriesDebug() {
-  const url = `${COGNITO_API_BASE}/forms/${FORM_ID}/entries`;
-  const r = await fetch(url, {
-    headers: { Authorization: `Bearer ${COGNITO_API_KEY}`, Accept: "application/json" }
-  });
-  const body = await r.text();
-  return { ok: r.ok, status: r.status, url, base: COGNITO_API_BASE, formId: FORM_ID, bodyPreview: body.slice(0, 500) };
+async function fetchEntriesWithFallback(): Promise<any[]> {
+  try {
+    return await fetchEntries(FORM_ID, COGNITO_API_KEY);
+  } catch (e) {
+    // Fallback: call our own GET endpoint which you confirmed works
+    const origin =
+      process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : (process.env.PUBLIC_URL || "http://localhost:3000");
+    const url = `${origin}/api/cognito/entries?page=1&pageSize=200`;
+    const r = await fetch(url);
+    const txt = await r.text();
+    if (!r.ok) throw new Error(`entries fallback failed: ${r.status} ${txt}`);
+    return JSON.parse(txt);
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method !== "POST") return res.status(405).end();
-
     if (!FORM_ID || !COGNITO_API_KEY) {
-      return res.status(500).json({
-        error: "Missing env",
-        FORM_ID,
-        COGNITO_API_KEY_present: !!COGNITO_API_KEY
-      });
+      return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
     }
 
-    // --- DEBUG FIRST: hit Cognito and echo what we used ---
-    const probe = await fetchEntriesDebug();
-    if (!probe.ok) {
-      // Return the upstream details so we can see the exact mismatch
-      return res.status(502).json({ error: "cognito_entries_probe_failed", ...probe });
-    }
+    const entries = await fetchEntriesWithFallback();
 
-    // If the probe succeeded, parse entries and continue
-    const entries = JSON.parse(probe.bodyPreview); // bodyPreview is the full body when ok
     let processed = 0;
-
     for (const entry of entries) {
       const name = (entry as any).DogName || (entry as any).Name;
       if (!name) continue;
@@ -75,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       processed++;
     }
 
-    return res.status(200).json({ processed, source: probe.url });
+    return res.status(200).json({ processed });
   } catch (e: any) {
     console.error(e);
     return res.status(500).json({ error: e?.message || "internal_error" });
