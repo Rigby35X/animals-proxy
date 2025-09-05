@@ -1,11 +1,10 @@
 // lib/shopify.ts
-
 const API_VERSION = "2024-07";
 
 type UpsertArgs = {
-  id?: string;                   // Shopify GID, if updating
+  id?: string;
   title: string;
-  bodyHtml?: string;             // caller passes Story here; we map -> descriptionHtml
+  bodyHtml?: string;             // mapped -> descriptionHtml
   tags?: string[];
   handle?: string;
   status?: "ACTIVE" | "ARCHIVED" | "DRAFT";
@@ -14,8 +13,8 @@ type UpsertArgs = {
 type MetafieldInput = {
   namespace: string;
   key: string;
-  type: string;                  // e.g. "single_line_text_field", "date", etc.
-  value: string;                 // always string in GraphQL input
+  type: string;
+  value: string;
 };
 
 type ShopifyGraphQLError = { message: string; extensions?: any; locations?: any[] };
@@ -47,132 +46,89 @@ async function shopGraphQL<T = any>(query: string, variables?: any): Promise<T> 
   if (!resp.ok) {
     throw new Error(`Shopify GraphQL HTTP ${resp.status}: ${JSON.stringify(json)}`);
   }
-
-  // Top-level GraphQL errors
   if (json.errors && json.errors.length) {
     const errs = json.errors as ShopifyGraphQLError[];
     throw new Error(JSON.stringify(errs));
   }
-
   return json as T;
 }
 
-/** Create or update a product. Maps `bodyHtml` -> `descriptionHtml` (GraphQL field). */
 export async function upsertProduct(input: UpsertArgs): Promise<string> {
   const shopifyInput: any = {
     id: input.id,
     title: input.title,
-    descriptionHtml: input.bodyHtml ?? "",        // ← FIXED FIELD NAME
+    descriptionHtml: input.bodyHtml ?? "",   // ✅ correct field name
     tags: input.tags || [],
     handle: input.handle,
     status: input.status ?? "ACTIVE",
   };
-  // Remove undefined keys (GraphQL rejects undefined)
   Object.keys(shopifyInput).forEach((k) => shopifyInput[k] === undefined && delete shopifyInput[k]);
 
-  const mutation = input.id
-    ? `
-      mutation UpdateProduct($input: ProductInput!) {
-        productUpdate(input: $input) {
-          product { id handle status title }
-          userErrors { field message }
-        }
+  const mutation = input.id ? `
+    mutation UpdateProduct($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id handle status title }
+        userErrors { field message }
       }
-    `
-    : `
-      mutation CreateProduct($input: ProductInput!) {
-        productCreate(input: $input) {
-          product { id handle status title }
-          userErrors { field message }
-        }
+    }` : `
+    mutation CreateProduct($input: ProductInput!) {
+      productCreate(input: $input) {
+        product { id handle status title }
+        userErrors { field message }
       }
-    `;
+    }`;
 
   const data = await shopGraphQL(mutation, { input: shopifyInput });
-
   const res = input.id ? (data as any).data.productUpdate : (data as any).data.productCreate;
   const userErrors = res?.userErrors || [];
-  if (userErrors.length) {
-    throw new Error(JSON.stringify(userErrors));
-  }
+  if (userErrors.length) throw new Error(JSON.stringify(userErrors));
   const productId = res?.product?.id;
   if (!productId) throw new Error("Shopify upsert returned no product id");
-
   return productId as string;
 }
 
-/** Find a product by handle (returns {id, handle} or null). */
 export async function findProductByHandle(handle: string): Promise<{ id: string; handle: string } | null> {
-  const query = `
-    query ProductByHandle($handle: String!) {
-      productByHandle(handle: $handle) {
-        id
-        handle
+  const q = `query ProductByHandle($handle: String!) { productByHandle(handle: $handle) { id handle } }`;
+  const json = await shopGraphQL(q, { handle });
+  const p = (json as any).data?.productByHandle;
+  return p ? { id: p.id, handle: p.handle } : null;
+}
+
+/** Generic product search (first result) using Shopify’s Admin search syntax */
+export async function findProductByQuery(query: string): Promise<{ id: string; handle: string; title: string } | null> {
+  const q = `
+    query ProductsByQuery($query: String!) {
+      products(first: 1, query: $query) {
+        nodes { id handle title }
       }
     }
   `;
-  const json = await shopGraphQL(query, { handle });
-  const p = (json as any).data?.productByHandle;
-  if (!p) return null;
-  return { id: p.id, handle: p.handle };
+  const json = await shopGraphQL(q, { query });
+  const node = (json as any).data?.products?.nodes?.[0];
+  return node ? { id: node.id, handle: node.handle, title: node.title } : null;
 }
 
-/** Set metafields on a product (array). */
 export async function setMetafields(ownerId: string, metafields: MetafieldInput[]) {
   if (!metafields.length) return;
-
-  const mutation = `
+  const m = `
     mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
       metafieldsSet(metafields: $metafields) {
-        metafields {
-          id
-          namespace
-          key
-          type
-          value
-          owner { ... on Product { id } }
-        }
+        metafields { id namespace key type value owner { ... on Product { id } } }
         userErrors { field message }
       }
-    }
-  `;
-
-  const variables = {
-    metafields: metafields.map((m) => ({
-      ownerId,
-      namespace: m.namespace,
-      key: m.key,
-      type: m.type,
-      value: m.value,
-    })),
-  };
-
-  const json = await shopGraphQL(mutation, variables);
-  const res = (json as any).data?.metafieldsSet;
-  const userErrors = res?.userErrors || [];
-  if (userErrors.length) {
-    throw new Error(JSON.stringify(userErrors));
-  }
+    }`;
+  const vars = { metafields: metafields.map(mf => ({ ownerId, ...mf })) };
+  const json = await shopGraphQL(m, vars);
+  const errs = (json as any).data?.metafieldsSet?.userErrors || [];
+  if (errs.length) throw new Error(JSON.stringify(errs));
 }
 
-/** Delete all current media (images) on a product, then add new images from remote URLs. */
 export async function replaceImagesWithUrls(productId: string, urls: string[]) {
-  // 1) Fetch existing media IDs
-  const qMedia = `
-    query GetMedia($id: ID!) {
-      product(id: $id) {
-        id
-        media(first: 100) {
-          nodes { id }
-        }
-      }
-    }
-  `;
+  const qMedia = `query GetMedia($id: ID!) { product(id: $id) { id media(first: 100) { nodes { id } } } }`;
   const mediaJson = await shopGraphQL(qMedia, { id: productId });
   const nodes = (mediaJson as any).data?.product?.media?.nodes || [];
   const mediaIds: string[] = nodes.map((n: any) => n.id).filter(Boolean);
 
-  // 2) Delete existing media (if any)
   if (mediaIds.length) {
     const mDelete = `
       mutation ProductDeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
@@ -180,16 +136,13 @@ export async function replaceImagesWithUrls(productId: string, urls: string[]) {
           deletedMediaIds
           userErrors { field message }
         }
-      }
-    `;
+      }`;
     const delJson = await shopGraphQL(mDelete, { productId, mediaIds });
     const delErrors = (delJson as any).data?.productDeleteMedia?.userErrors || [];
     if (delErrors.length) throw new Error(JSON.stringify(delErrors));
   }
-
   if (!urls.length) return;
 
-  // 3) Create media from remote URLs
   const mCreate = `
     mutation ProductCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
       productCreateMedia(productId: $productId, media: $media) {
@@ -197,32 +150,18 @@ export async function replaceImagesWithUrls(productId: string, urls: string[]) {
         mediaUserErrors { code field message }
         product { id }
       }
-    }
-  `;
-
-  // Shopify will fetch each URL (must be publicly reachable)
-  const media = urls.map((u) => ({ originalSource: u }));
-
+    }`;
+  const media = urls.map(u => ({ originalSource: u }));
   const createJson = await shopGraphQL(mCreate, { productId, media });
   const userErrors = (createJson as any).data?.productCreateMedia?.mediaUserErrors || [];
-  if (userErrors.length) {
-    throw new Error(JSON.stringify(userErrors));
-  }
+  if (userErrors.length) throw new Error(JSON.stringify(userErrors));
 }
 
-/**
- * Replace images using Cognito file refs.
- * If your Cognito payload includes direct file URLs (recommended), this will reuse replaceImagesWithUrls.
- * If not, we currently skip (and log) because staging raw bytes requires an S3 pre-sign flow.
- */
-export async function replaceImagesFromCognitoFiles(productId: string, files: Array<{ Url?: string }>, _cognitoApiKey: string) {
-  const urls = (files || []).map((f) => f?.Url).filter(Boolean) as string[];
+export async function replaceImagesFromCognitoFiles(productId: string, files: Array<{ Url?: string }>, _cognitoKey: string) {
+  const urls = (files || []).map(f => f?.Url).filter(Boolean) as string[];
   if (urls.length) {
     await replaceImagesWithUrls(productId, urls);
     return;
   }
-
-  // If you need to support non-URL files, implement stagedUploadsCreate + productCreateMedia with resourceUrl.
-  // For now, just surface a helpful message.
-  console.warn("Cognito files missing Urls; skipping image upload for product:", productId);
+  console.warn("Cognito files missing Urls; skipping image upload for", productId);
 }
