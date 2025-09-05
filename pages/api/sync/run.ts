@@ -10,8 +10,9 @@ import {
 } from "../../../lib/shopify";
 import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../lib/map";
 
-const FORM_ID = process.env.COGNITO_FORM_ID!;
-const COGNITO_API_KEY = process.env.COGNITO_API_KEY!;
+const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
+const COGNITO_API_KEY = (process.env.COGNITO_API_KEY || "").trim();
+
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
