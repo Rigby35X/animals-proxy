@@ -64,32 +64,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Cognito's /files/{id} endpoint returns JSON metadata. Preserve its
     // declared MIME type/name, then follow the short-lived download URL.
     const firstType = image.headers.get("content-type") || "";
+    let embeddedBytes: Buffer | null = null;
+
     if (firstType.includes("application/json")) {
       const metadata = await image.json();
       const downloadUrl = metadata?.File || metadata?.Url || metadata?.url;
+      const embeddedContent = metadata?.Content || metadata?.content;
       metadataContentType = String(metadata?.ContentType || metadata?.contentType || "");
       metadataName = String(metadata?.Name || metadata?.FileName || "");
-      if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
-      image = await fetch(downloadUrl);
-      if (!image.ok) {
-        if (debug) {
-          return res.status(200).json({
-            ok: false,
-            stage: "cognito_download_url",
-            upstreamStatus: image.status,
-            formId: FORM_ID,
-            entryNumber: match[2],
-            photoIndex: index,
-            hasFileId: Boolean(fileId),
-            hasDirectUrl: Boolean(directUrl),
-          });
+
+      // Cognito's stable /files/{id} response can include the file itself as
+      // base64 in Content. Prefer that over the signed File URL because the
+      // signed URL can immediately return 410 Gone.
+      if (typeof embeddedContent === "string" && embeddedContent.trim()) {
+        const raw = embeddedContent.includes(",")
+          ? embeddedContent.slice(embeddedContent.indexOf(",") + 1)
+          : embeddedContent;
+        embeddedBytes = Buffer.from(raw, "base64");
+      } else {
+        if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
+        image = await fetch(downloadUrl);
+        if (!image.ok) {
+          if (debug) {
+            return res.status(200).json({
+              ok: false,
+              stage: "cognito_download_url",
+              upstreamStatus: image.status,
+              formId: FORM_ID,
+              entryNumber: match[2],
+              photoIndex: index,
+              hasFileId: Boolean(fileId),
+              hasDirectUrl: Boolean(directUrl),
+            });
+          }
+          return res.status(image.status).end();
         }
-        return res.status(image.status).end();
       }
     }
 
     let contentType = metadataContentType || image.headers.get("content-type") || "application/octet-stream";
-    const bytes = Buffer.from(await image.arrayBuffer());
+    const bytes = embeddedBytes || Buffer.from(await image.arrayBuffer());
 
     const fileName = String(metadataName || file?.FileName || file?.Name || "").toLowerCase();
     if (!contentType.startsWith("image/")) {
@@ -111,6 +125,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         hasDirectUrl: Boolean(directUrl),
         contentType,
         byteLength: bytes.length,
+        usedEmbeddedContent: Boolean(embeddedBytes),
       });
     }
 
