@@ -1,9 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { fetchEntries } from "../../../lib/cognito";
-import { isPubliclyAvailable, toPublicAnimal } from "../../../lib/public-animal";
+import { fetchPublicAnimalsFromOData } from "../../../lib/cognito-odata";
 
-const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || process.env.COGNITO_FORM_ID || "").trim();
-const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
+const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || "").trim();
 
 function cors(res: NextApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,17 +16,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    if (!FORM_ID || !API_KEY) {
-      return res.status(500).json({ error: "Animal API is not configured" });
-    }
+    if (!FORM_ID) return res.status(500).json({ error: "Missing PUBLIC_ANIMALS_COGNITO_FORM_ID" });
 
-    const entries = await fetchEntries(FORM_ID, API_KEY);
-    const animals = entries
-      .filter(isPubliclyAvailable)
-      .map((entry) => toPublicAnimal(FORM_ID, entry))
-      .filter((animal) => animal.entry_id && animal.animal_key)
-      .sort((a, b) => a.name.localeCompare(b.name));
-
+    const animals = await fetchPublicAnimalsFromOData(FORM_ID);
     return res.status(200).json({
       form_id: FORM_ID,
       count: animals.length,
