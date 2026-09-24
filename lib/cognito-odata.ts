@@ -75,16 +75,18 @@ export function odataIsAvailable(row: any): boolean {
   return /^available\b/i.test(code);
 }
 
-export function odataToPublicAnimal(formId: string, row: any): PublicAnimal {
+export function odataToPublicAnimal(formId: string, row: any, publicBaseUrl = ""): PublicAnimal {
   const entryId = odataEntryNumber(row);
-  const photos = collectPhotos(row);
+  const rawPhotos = collectPhotos(row);
+  const key = entryId ? "dog-" + formId + "-" + entryId : "";
+  const photos = key && publicBaseUrl ? rawPhotos.map((_, index) => publicBaseUrl + "/api/animals/" + key + "/photo/" + index) : rawPhotos;
   const code = clean(pick(row, "Code", "Status"));
   const availability = clean(pick(row, "Availability", "Code", "Status"));
 
   return {
     form_id: formId,
     entry_id: entryId,
-    animal_key: entryId ? "dog-" + formId + "-" + entryId : "",
+    animal_key: key,
     name: clean(pick(row, "DogName", "Dog_Name", "Name")) || "Available Pup",
     story: clean(pick(row, "MyStory", "My_Story", "Story", "Description")),
     code,
@@ -101,7 +103,7 @@ export function odataToPublicAnimal(formId: string, row: any): PublicAnimal {
 }
 
 // Public website feed: Cognito OData -> normalized read-only animal records.
-export async function fetchPublicAnimalsFromOData(formId: string): Promise<PublicAnimal[]> {
+export async function fetchPublicAnimalsFromOData(formId: string, publicBaseUrl = ""): Promise<PublicAnimal[]> {
   const url = (process.env.PUBLIC_ANIMALS_ODATA_URL || "").trim();
   if (!url) throw new Error("Missing PUBLIC_ANIMALS_ODATA_URL");
 
@@ -125,7 +127,7 @@ export async function fetchPublicAnimalsFromOData(formId: string): Promise<Publi
 
   return odataRows(payload)
     .filter(odataIsAvailable)
-    .map((row) => odataToPublicAnimal(formId, row))
+    .map((row) => odataToPublicAnimal(formId, row, publicBaseUrl))
     .filter((animal) => animal.entry_id && animal.animal_key)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
