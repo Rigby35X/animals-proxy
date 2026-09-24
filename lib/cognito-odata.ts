@@ -64,6 +64,7 @@ export function odataEntryNumber(row: any): string {
       "Entry_Number",
       "EntryNumberValue",
       "Entry",
+      "Id",
       "#"
     )
   ).replace(/^#/, "");
