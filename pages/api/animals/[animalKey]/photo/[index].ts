@@ -68,10 +68,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       else contentType = "image/jpeg";
     }
 
+    res.statusCode = 200;
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Disposition", "inline; filename=\"animal-photo\"");
-    res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
-    return res.status(200).send(bytes);
+    res.setHeader("Cache-Control", "no-store");
+    res.removeHeader("Content-Disposition");
+    return res.end(bytes);
   } catch (error) {
     console.error("Animal photo proxy error", error);
     return res.status(500).json({ error: "Failed to load animal photo" });
