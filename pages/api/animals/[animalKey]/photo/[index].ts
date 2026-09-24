@@ -3,11 +3,22 @@ import { collectFileRefs, fetchEntryByNumber, fileIdFromRef } from "../../../../
 
 const BASE = (process.env.COGNITO_API_BASE || "https://www.cognitoforms.com/api").trim();
 const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || "").trim();
-const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
+const API_KEY = (
+  process.env.PUBLIC_ANIMALS_COGNITO_API_KEY ||
+  process.env.COGNITO_API_KEY ||
+  ""
+).trim();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).end();
-  if (!FORM_ID || !API_KEY) return res.status(500).json({ error: "Animal photo proxy is not configured" });
+  if (!FORM_ID || !API_KEY) {
+    console.error("Animal photo proxy missing configuration", {
+      hasFormId: Boolean(FORM_ID),
+      hasPublicApiKey: Boolean(process.env.PUBLIC_ANIMALS_COGNITO_API_KEY),
+      hasLegacyApiKey: Boolean(process.env.COGNITO_API_KEY),
+    });
+    return res.status(500).json({ error: "Animal photo proxy is not configured" });
+  }
 
   try {
     const animalKey = Array.isArray(req.query.animalKey) ? req.query.animalKey[0] : req.query.animalKey;
