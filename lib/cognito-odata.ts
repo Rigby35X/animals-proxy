@@ -99,7 +99,7 @@ export function odataToPublicAnimal(formId: string, row: any): PublicAnimal {
   };
 }
 
-export async function fetchPublicAnimalsFromOData(formId: string): Promise<PublicAnimal[]> {
+// Public website feed: Cognito OData -> normalized read-only animal records.\nexport async function fetchPublicAnimalsFromOData(formId: string): Promise<PublicAnimal[]> {
   const url = (process.env.PUBLIC_ANIMALS_ODATA_URL || "").trim();
   if (!url) throw new Error("Missing PUBLIC_ANIMALS_ODATA_URL");
 
