@@ -3,8 +3,11 @@
 export type CognitoFileRef = {
   Id?: number | string;
   FileName?: string;
-  Url?: string; // some payloads include a direct URL
+  Url?: string;
+  [key: string]: any;
 };
+
+export type CognitoFileValue = CognitoFileRef | CognitoFileRef[] | string | null;
 
 export type CognitoEntry = {
   Id: string | number;        // e.g. "24-67"
@@ -23,11 +26,11 @@ export type CognitoEntry = {
     Number?: number;          // numeric entry number (sometimes available)
   };
 
-  MainPhoto?: CognitoFileRef | null;
-  AdditionalPhoto1?: CognitoFileRef | null;
-  AdditionalPhoto2?: CognitoFileRef | null;
-  AdditionalPhoto3?: CognitoFileRef | null;
-  AdditionalPhoto4?: CognitoFileRef | null;
+  MainPhoto?: CognitoFileValue;
+  AdditionalPhoto1?: CognitoFileValue;
+  AdditionalPhoto2?: CognitoFileValue;
+  AdditionalPhoto3?: CognitoFileValue;
+  AdditionalPhoto4?: CognitoFileValue;
 };
 
 // ✅ Correct base (no /v1)
@@ -70,13 +73,38 @@ export async function fetchEntries(formId: string, apiKey: string): Promise<Cogn
 
 /** Gather all file refs (main + up to 4 additional) from an entry */
 export function collectFileRefs(entry: CognitoEntry): CognitoFileRef[] {
-  const list: CognitoFileRef[] = [];
-  if (entry.MainPhoto) list.push(entry.MainPhoto);
-  if (entry.AdditionalPhoto1) list.push(entry.AdditionalPhoto1);
-  if (entry.AdditionalPhoto2) list.push(entry.AdditionalPhoto2);
-  if (entry.AdditionalPhoto3) list.push(entry.AdditionalPhoto3);
-  if (entry.AdditionalPhoto4) list.push(entry.AdditionalPhoto4);
-  return list.filter(Boolean);
+  const values = [
+    entry.MainPhoto,
+    entry.AdditionalPhoto1,
+    entry.AdditionalPhoto2,
+    entry.AdditionalPhoto3,
+    entry.AdditionalPhoto4,
+  ];
+
+  const out: CognitoFileRef[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) if (item) out.push(item);
+    } else if (typeof value === "string") {
+      out.push({ FileName: value });
+    } else {
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+export function fileIdFromRef(ref: CognitoFileRef): string {
+  const direct = ref?.Id ?? ref?.id ?? ref?.FileId ?? ref?.FileID ?? ref?.File?.Id ?? ref?.File?.id;
+  if (direct != null && String(direct).trim()) return String(direct).trim();
+
+  const text = [ref?.FileName, ref?.Name, ref?.DisplayName]
+    .filter(Boolean)
+    .map(String)
+    .join(" ");
+  const match = text.match(/(F-[A-Za-z0-9_-]+)/);
+  return match?.[1] || "";
 }
 
 /** ✅ Build a stable key like "24-67" */
@@ -86,4 +114,23 @@ export function stableEntryId(formId: string, e: CognitoEntry): string {
   const num = e.Entry?.Number;
   if (num) return `${formId}-${num}`;
   return "";
+}
+
+
+/** Fetch one Cognito entry by numeric entry number. Used by the public image proxy. */
+export async function fetchEntryByNumber(formId: string, entryNumber: string | number, apiKey: string): Promise<CognitoEntry> {
+  const url = `${BASE}/forms/${formId}/entries/${entryNumber}`;
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json",
+    },
+  });
+
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Cognito fetch entry failed: ${r.status} ${r.statusText} - ${body}`);
+  }
+
+  return (await r.json()) as CognitoEntry;
 }
