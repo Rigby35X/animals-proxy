@@ -87,3 +87,22 @@ export function stableEntryId(formId: string, e: CognitoEntry): string {
   if (num) return `${formId}-${num}`;
   return "";
 }
+
+
+/** Fetch one Cognito entry by numeric entry number. Used by the public image proxy. */
+export async function fetchEntryByNumber(formId: string, entryNumber: string | number, apiKey: string): Promise<CognitoEntry> {
+  const url = `${BASE}/forms/${formId}/entries/${entryNumber}`;
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json",
+    },
+  });
+
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`Cognito fetch entry failed: ${r.status} ${r.statusText} - ${body}`);
+  }
+
+  return (await r.json()) as CognitoEntry;
+}
