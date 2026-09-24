@@ -7,6 +7,7 @@ const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).end();
+  const debug = req.query.debug === "1";
   if (!FORM_ID || !API_KEY) return res.status(500).json({ error: "Animal photo proxy is not configured" });
 
   try {
@@ -26,19 +27,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const directUrl = file.Url || file.url;
     const fileId = fileIdFromRef(file);
 
-    const source = directUrl
-      ? String(directUrl)
-      : fileId
-        ? BASE + "/files/" + encodeURIComponent(fileId)
+    // Prefer Cognito's stable file-id endpoint. Direct file URLs can be
+    // short-lived and may return 410 Gone after their token expires.
+    const source = fileId
+      ? BASE + "/files/" + encodeURIComponent(fileId)
+      : directUrl
+        ? String(directUrl)
         : "";
 
     if (!source) return res.status(404).end();
 
-    let image = await fetch(source, directUrl ? undefined : {
+    const usingStableFileEndpoint = Boolean(fileId);
+    let image = await fetch(source, usingStableFileEndpoint ? {
       headers: { Authorization: "Bearer " + API_KEY, Accept: "*/*" }
-    });
+    } : undefined);
 
-    if (!image.ok) return res.status(image.status).end();
+    if (!image.ok) {
+      if (debug) {
+        return res.status(200).json({
+          ok: false,
+          stage: usingStableFileEndpoint ? "cognito_file_metadata" : "direct_file_url",
+          upstreamStatus: image.status,
+          formId: FORM_ID,
+          entryNumber: match[2],
+          photoIndex: index,
+          hasFileId: Boolean(fileId),
+          hasDirectUrl: Boolean(directUrl),
+        });
+      }
+      return res.status(image.status).end();
+    }
 
     let metadataContentType = "";
     let metadataName = "";
@@ -46,18 +64,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Cognito's /files/{id} endpoint returns JSON metadata. Preserve its
     // declared MIME type/name, then follow the short-lived download URL.
     const firstType = image.headers.get("content-type") || "";
+    let embeddedBytes: Buffer | null = null;
+
     if (firstType.includes("application/json")) {
       const metadata = await image.json();
       const downloadUrl = metadata?.File || metadata?.Url || metadata?.url;
+      const embeddedContent = metadata?.Content || metadata?.content;
       metadataContentType = String(metadata?.ContentType || metadata?.contentType || "");
       metadataName = String(metadata?.Name || metadata?.FileName || "");
-      if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
-      image = await fetch(downloadUrl);
-      if (!image.ok) return res.status(image.status).end();
+
+      // Cognito's stable /files/{id} response can include the file itself as
+      // base64 in Content. Prefer that over the signed File URL because the
+      // signed URL can immediately return 410 Gone.
+      if (typeof embeddedContent === "string" && embeddedContent.trim()) {
+        const raw = embeddedContent.includes(",")
+          ? embeddedContent.slice(embeddedContent.indexOf(",") + 1)
+          : embeddedContent;
+        embeddedBytes = Buffer.from(raw, "base64");
+      } else {
+        if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
+        image = await fetch(downloadUrl);
+        if (!image.ok) {
+          if (debug) {
+            return res.status(200).json({
+              ok: false,
+              stage: "cognito_download_url",
+              upstreamStatus: image.status,
+              formId: FORM_ID,
+              entryNumber: match[2],
+              photoIndex: index,
+              hasFileId: Boolean(fileId),
+              hasDirectUrl: Boolean(directUrl),
+            });
+          }
+          return res.status(image.status).end();
+        }
+      }
     }
 
     let contentType = metadataContentType || image.headers.get("content-type") || "application/octet-stream";
-    const bytes = Buffer.from(await image.arrayBuffer());
+    const bytes = embeddedBytes || Buffer.from(await image.arrayBuffer());
 
     const fileName = String(metadataName || file?.FileName || file?.Name || "").toLowerCase();
     if (!contentType.startsWith("image/")) {
@@ -66,6 +112,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       else if (fileName.endsWith(".webp")) contentType = "image/webp";
       else if (fileName.endsWith(".gif")) contentType = "image/gif";
       else contentType = "image/jpeg";
+    }
+
+    if (debug) {
+      return res.status(200).json({
+        ok: true,
+        stage: "ready",
+        formId: FORM_ID,
+        entryNumber: match[2],
+        photoIndex: index,
+        hasFileId: Boolean(fileId),
+        hasDirectUrl: Boolean(directUrl),
+        contentType,
+        byteLength: bytes.length,
+        usedEmbeddedContent: Boolean(embeddedBytes),
+      });
     }
 
     res.statusCode = 200;
