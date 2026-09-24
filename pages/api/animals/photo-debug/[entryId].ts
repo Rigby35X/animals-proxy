@@ -20,10 +20,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const summary:any = {};
   for (const field of photoFields) {
     const value = data?.[field];
+    const raw = typeof value === "string" ? value : "";
+    const match = raw.match(/\((F-[^)]+)\)\s*$/);
     summary[field] = value ? {
       present: true,
+      type: Array.isArray(value) ? "array" : typeof value,
       hasUrl: Boolean(value?.Url || value?.url),
-      keys: typeof value === "object" ? Object.keys(value) : []
+      hasFileToken: Boolean(match),
+      fileToken: match ? match[1] : null,
+      keys: value && typeof value === "object" ? Object.keys(value) : []
     } : { present: false };
   }
   return res.status(200).json({ ok: true, photoFields: summary });
