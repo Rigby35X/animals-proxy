@@ -40,32 +40,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!image.ok) return res.status(image.status).end();
 
-    // Cognito's /files/{id} endpoint can return JSON metadata whose File field
-    // contains the short-lived download URL. Follow that URL server-side.
+    let metadataContentType = "";
+    let metadataName = "";
+
+    // Cognito's /files/{id} endpoint returns JSON metadata. Preserve its
+    // declared MIME type/name, then follow the short-lived download URL.
     const firstType = image.headers.get("content-type") || "";
     if (firstType.includes("application/json")) {
       const metadata = await image.json();
       const downloadUrl = metadata?.File || metadata?.Url || metadata?.url;
+      metadataContentType = String(metadata?.ContentType || metadata?.contentType || "");
+      metadataName = String(metadata?.Name || metadata?.FileName || "");
       if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
       image = await fetch(downloadUrl);
       if (!image.ok) return res.status(image.status).end();
     }
 
-    let contentType = image.headers.get("content-type") || "application/octet-stream";
+    let contentType = metadataContentType || image.headers.get("content-type") || "application/octet-stream";
     const bytes = Buffer.from(await image.arrayBuffer());
 
-    // Cognito may return the file as an attachment and/or generic binary.
-    // Force browser-friendly inline rendering for common image formats.
-    const fileName = String(file?.FileName || file?.Name || "").toLowerCase();
-    if (contentType === "application/octet-stream") {
+    const fileName = String(metadataName || file?.FileName || file?.Name || "").toLowerCase();
+    if (!contentType.startsWith("image/")) {
       if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) contentType = "image/jpeg";
       else if (fileName.endsWith(".png")) contentType = "image/png";
       else if (fileName.endsWith(".webp")) contentType = "image/webp";
       else if (fileName.endsWith(".gif")) contentType = "image/gif";
+      else contentType = "image/jpeg";
     }
 
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Content-Disposition", "inline; filename=\"animal-photo\"");
     res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
     return res.status(200).send(bytes);
   } catch (error) {
