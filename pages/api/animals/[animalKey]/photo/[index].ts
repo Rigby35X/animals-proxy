@@ -26,17 +26,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const directUrl = file.Url || file.url;
     const fileId = fileIdFromRef(file);
 
-    const source = directUrl
-      ? String(directUrl)
-      : fileId
-        ? BASE + "/files/" + encodeURIComponent(fileId)
+    // Prefer Cognito's stable file-id endpoint. Direct file URLs can be
+    // short-lived and may return 410 Gone after their token expires.
+    const source = fileId
+      ? BASE + "/files/" + encodeURIComponent(fileId)
+      : directUrl
+        ? String(directUrl)
         : "";
 
     if (!source) return res.status(404).end();
 
-    let image = await fetch(source, directUrl ? undefined : {
+    const usingStableFileEndpoint = Boolean(fileId);
+    let image = await fetch(source, usingStableFileEndpoint ? {
       headers: { Authorization: "Bearer " + API_KEY, Accept: "*/*" }
-    });
+    } : undefined);
 
     if (!image.ok) return res.status(image.status).end();
 
