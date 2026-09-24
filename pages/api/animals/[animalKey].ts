@@ -1,9 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { fetchEntries } from "../../../lib/cognito";
-import { animalKey, isPubliclyAvailable, toPublicAnimal } from "../../../lib/public-animal";
+import { fetchPublicAnimalsFromOData } from "../../../lib/cognito-odata";
 
-const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || process.env.COGNITO_FORM_ID || "").trim();
-const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
+const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || "").trim();
 
 function cors(res: NextApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,26 +16,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    if (!FORM_ID || !API_KEY) {
-      return res.status(500).json({ error: "Animal API is not configured" });
-    }
+    if (!FORM_ID) return res.status(500).json({ error: "Missing PUBLIC_ANIMALS_COGNITO_FORM_ID" });
 
     const requested = Array.isArray(req.query.animalKey) ? req.query.animalKey[0] : req.query.animalKey;
     if (!requested) return res.status(400).json({ error: "Missing animal key" });
 
     const expectedPrefix = "dog-" + FORM_ID + "-";
-    if (!requested.startsWith(expectedPrefix)) {
-      return res.status(404).json({ error: "Animal not found" });
-    }
+    if (!requested.startsWith(expectedPrefix)) return res.status(404).json({ error: "Animal not found" });
 
-    const entries = await fetchEntries(FORM_ID, API_KEY);
-    const match = entries.find((entry) => animalKey(FORM_ID, entry) === requested);
+    const animals = await fetchPublicAnimalsFromOData(FORM_ID);
+    const match = animals.find((animal) => animal.animal_key === requested);
+    if (!match) return res.status(404).json({ error: "Animal not found" });
 
-    if (!match || !isPubliclyAvailable(match)) {
-      return res.status(404).json({ error: "Animal not found" });
-    }
-
-    return res.status(200).json(toPublicAnimal(FORM_ID, match));
+    return res.status(200).json(match);
   } catch (error: any) {
     console.error("Public animal detail error:", error);
     return res.status(500).json({ error: error?.message || "Failed to fetch animal" });
