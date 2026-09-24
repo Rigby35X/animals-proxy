@@ -34,11 +34,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!source) return res.status(404).end();
 
-    const image = await fetch(source, directUrl ? undefined : {
+    let image = await fetch(source, directUrl ? undefined : {
       headers: { Authorization: "Bearer " + API_KEY, Accept: "*/*" }
     });
 
     if (!image.ok) return res.status(image.status).end();
+
+    // Cognito's /files/{id} endpoint can return JSON metadata whose File field
+    // contains the short-lived download URL. Follow that URL server-side.
+    const firstType = image.headers.get("content-type") || "";
+    if (firstType.includes("application/json")) {
+      const metadata = await image.json();
+      const downloadUrl = metadata?.File || metadata?.Url || metadata?.url;
+      if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
+      image = await fetch(downloadUrl);
+      if (!image.ok) return res.status(image.status).end();
+    }
 
     const contentType = image.headers.get("content-type") || "application/octet-stream";
     const disposition = image.headers.get("content-disposition");
