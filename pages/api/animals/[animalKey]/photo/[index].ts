@@ -51,12 +51,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!image.ok) return res.status(image.status).end();
     }
 
-    const contentType = image.headers.get("content-type") || "application/octet-stream";
-    const disposition = image.headers.get("content-disposition");
+    let contentType = image.headers.get("content-type") || "application/octet-stream";
     const bytes = Buffer.from(await image.arrayBuffer());
 
+    // Cognito may return the file as an attachment and/or generic binary.
+    // Force browser-friendly inline rendering for common image formats.
+    const fileName = String(file?.FileName || file?.Name || "").toLowerCase();
+    if (contentType === "application/octet-stream") {
+      if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) contentType = "image/jpeg";
+      else if (fileName.endsWith(".png")) contentType = "image/png";
+      else if (fileName.endsWith(".webp")) contentType = "image/webp";
+      else if (fileName.endsWith(".gif")) contentType = "image/gif";
+    }
+
     res.setHeader("Content-Type", contentType);
-    if (disposition) res.setHeader("Content-Disposition", disposition);
+    res.setHeader("Content-Disposition", "inline");
     res.setHeader("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
     return res.status(200).send(bytes);
   } catch (error) {
