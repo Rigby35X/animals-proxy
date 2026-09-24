@@ -7,6 +7,7 @@ const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") return res.status(405).end();
+  const debug = req.query.debug === "1";
   if (!FORM_ID || !API_KEY) return res.status(500).json({ error: "Animal photo proxy is not configured" });
 
   try {
@@ -41,7 +42,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       headers: { Authorization: "Bearer " + API_KEY, Accept: "*/*" }
     } : undefined);
 
-    if (!image.ok) return res.status(image.status).end();
+    if (!image.ok) {
+      if (debug) {
+        return res.status(200).json({
+          ok: false,
+          stage: usingStableFileEndpoint ? "cognito_file_metadata" : "direct_file_url",
+          upstreamStatus: image.status,
+          formId: FORM_ID,
+          entryNumber: match[2],
+          photoIndex: index,
+          hasFileId: Boolean(fileId),
+          hasDirectUrl: Boolean(directUrl),
+        });
+      }
+      return res.status(image.status).end();
+    }
 
     let metadataContentType = "";
     let metadataName = "";
@@ -56,7 +71,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       metadataName = String(metadata?.Name || metadata?.FileName || "");
       if (!downloadUrl || typeof downloadUrl !== "string") return res.status(502).end();
       image = await fetch(downloadUrl);
-      if (!image.ok) return res.status(image.status).end();
+      if (!image.ok) {
+        if (debug) {
+          return res.status(200).json({
+            ok: false,
+            stage: "cognito_download_url",
+            upstreamStatus: image.status,
+            formId: FORM_ID,
+            entryNumber: match[2],
+            photoIndex: index,
+            hasFileId: Boolean(fileId),
+            hasDirectUrl: Boolean(directUrl),
+          });
+        }
+        return res.status(image.status).end();
+      }
     }
 
     let contentType = metadataContentType || image.headers.get("content-type") || "application/octet-stream";
@@ -69,6 +98,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       else if (fileName.endsWith(".webp")) contentType = "image/webp";
       else if (fileName.endsWith(".gif")) contentType = "image/gif";
       else contentType = "image/jpeg";
+    }
+
+    if (debug) {
+      return res.status(200).json({
+        ok: true,
+        stage: "ready",
+        formId: FORM_ID,
+        entryNumber: match[2],
+        photoIndex: index,
+        hasFileId: Boolean(fileId),
+        hasDirectUrl: Boolean(directUrl),
+        contentType,
+        byteLength: bytes.length,
+      });
     }
 
     res.statusCode = 200;
