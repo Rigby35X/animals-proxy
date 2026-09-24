@@ -18,13 +18,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     if (!FORM_ID) return res.status(500).json({ error: "Missing PUBLIC_ANIMALS_COGNITO_FORM_ID" });
 
+    const proto = String(req.headers["x-forwarded-proto"] || "https");
+    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "");
+    const publicBaseUrl = host ? proto + "://" + host : "";
+
     const requested = Array.isArray(req.query.animalKey) ? req.query.animalKey[0] : req.query.animalKey;
     if (!requested) return res.status(400).json({ error: "Missing animal key" });
 
     const expectedPrefix = "dog-" + FORM_ID + "-";
     if (!requested.startsWith(expectedPrefix)) return res.status(404).json({ error: "Animal not found" });
 
-    const animals = await fetchPublicAnimalsFromOData(FORM_ID);
+    const animals = await fetchPublicAnimalsFromOData(FORM_ID, publicBaseUrl);
     const match = animals.find((animal) => animal.animal_key === requested);
     if (!match) return res.status(404).json({ error: "Animal not found" });
 
