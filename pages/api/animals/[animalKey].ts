@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchEntries } from "../../../lib/cognito";
 import { animalKey, isPubliclyAvailable, toPublicAnimal } from "../../../lib/public-animal";
 
-const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
+const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || process.env.COGNITO_FORM_ID || "").trim();
 const API_KEY = (process.env.COGNITO_API_KEY || "").trim();
 
 function cors(res: NextApiResponse) {
