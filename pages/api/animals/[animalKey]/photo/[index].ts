@@ -70,7 +70,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.statusCode = 200;
     res.setHeader("Content-Type", contentType);
-    res.setHeader("Cache-Control", "no-store");
+    // Browser can reuse a photo briefly; Vercel's CDN can cache it longer.
+    // stale-while-revalidate keeps repeat views fast while still allowing
+    // replaced Cognito photos to refresh without a long-lived stale image.
+    res.setHeader(
+      "Cache-Control",
+      "public, max-age=60, s-maxage=300, stale-while-revalidate=3600"
+    );
     res.removeHeader("Content-Disposition");
     return res.end(bytes);
   } catch (error) {
