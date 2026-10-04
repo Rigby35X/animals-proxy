@@ -1,11 +1,15 @@
 import slugify from "slugify";
 import { CognitoEntry, collectFileRefs } from "./cognito";
 
-const HANDLE_SUFFIX = process.env.HANDLE_SUFFIX ?? "-mbpr";
-
+/**
+ * Canonical handle for the legacy Shopify animal sync.
+ *
+ * Keep this aligned with the original Shopify webhook so the webhook,
+ * scheduled sync, and manual scan all resolve the same Shopify product.
+ * The Astro/public animal API does not use Shopify handles.
+ */
 export function toHandle(name: string) {
-  const base = slugify(`${name} ${name}`, { lower: true, strict: true }); // keep your current pattern
-  return `${base}${HANDLE_SUFFIX}`;
+  return slugify(`${name} ${name}`, { lower: true, strict: true });
 }
 
 export function tagsForCode(code?: string): string[] {
