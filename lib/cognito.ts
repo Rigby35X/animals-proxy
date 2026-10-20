@@ -103,8 +103,8 @@ export function fileIdFromRef(ref: CognitoFileRef): string {
     .filter(Boolean)
     .map(String)
     .join(" ");
-  const match = text.match(/(F-[A-Za-z0-9_-]+)/);
-  return match?.[1] || "";
+  const match = text.match(/\(F-([^)]+)\)/);
+  return match ? "F-" + match[1] : "";
 }
 
 /** ✅ Build a stable key like "24-67" */
