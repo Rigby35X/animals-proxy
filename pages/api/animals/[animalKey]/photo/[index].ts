@@ -20,8 +20,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const match = animalKey.match(/^dog-(\d+)-(\d+)$/);
     if (!match || match[1] !== FORM_ID) return res.status(404).end();
 
-    const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
-    const file = collectFileRefs(entry)[index];
+    let files: Array<{ FileName?: string; Url?: string; url?: string; Id?: string }> = [];
+    if (FORM_ID === "49") {
+      const feedUrl = (process.env.PUBLIC_ANIMALS_ODATA_URL || "").trim();
+      if (!feedUrl) return res.status(500).end();
+      const feedResponse = await fetch(feedUrl, { headers: { Accept: "application/json" } });
+      if (!feedResponse.ok) return res.status(502).end();
+      const feed = await feedResponse.json();
+      const rows = Array.isArray(feed?.value) ? feed.value : [];
+      const row = rows.find((item: any) =>
+        String(item.Id) === match[2] && /^(available|vip)\\b/i.test(String(item.DogStatus || ""))
+      );
+      if (!row) return res.status(404).end();
+      files = [
+        row.DogProfile_Photo, row.Intake_Photo1, row.Intake_Photo22,
+        row.Intake_Photo3, row.Intake_Photo4,
+      ].filter((value: unknown) => typeof value === "string" && /\\(F-[^)]+\\)/.test(value as string))
+        .map((value: string) => ({ FileName: value }));
+    } else {
+      const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
+      files = collectFileRefs(entry);
+    }
+    const file = files[index];
     if (!file) return res.status(404).end();
 
     const directUrl = file.Url || file.url;
