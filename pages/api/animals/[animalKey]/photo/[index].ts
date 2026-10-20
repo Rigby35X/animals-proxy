@@ -29,13 +29,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const feed = await feedResponse.json();
       const rows = Array.isArray(feed?.value) ? feed.value : [];
       const row = rows.find((item: any) =>
-        String(item.Id) === match[2] && /^(available|vip)\\b/i.test(String(item.DogStatus || ""))
+        String(item.Id) === match[2] && /^(available|vip)\b/i.test(String(item.DogStatus || ""))
       );
       if (!row) return res.status(404).end();
       files = [
         row.DogProfile_Photo, row.Intake_Photo1, row.Intake_Photo22,
         row.Intake_Photo3, row.Intake_Photo4,
-      ].filter((value: unknown) => typeof value === "string" && /\\(F-[^)]+\\)/.test(value as string))
+      ].filter((value: unknown) => typeof value === "string" && /\(F-[^)]+\)/.test(value as string))
         .map((value: string) => ({ FileName: value }));
     } else {
       const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
