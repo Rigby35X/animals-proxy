@@ -12,6 +12,7 @@ function pick(row: any, ...keys: string[]) {
 }
 
 function fileUrl(value: any): string {
+  if (typeof value === "string" && /\(F-[^)]+\)/.test(value)) return value;
   if (!value) return "";
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
@@ -59,6 +60,7 @@ export function odataEntryNumber(row: any): string {
   return clean(
     pick(
       row,
+      "Id",
       "MBPRDogRecord_Id",
       "Number",
       "EntryNumber",
