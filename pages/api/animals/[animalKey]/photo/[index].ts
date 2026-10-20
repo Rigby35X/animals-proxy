@@ -20,31 +20,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const match = animalKey.match(/^dog-(\d+)-(\d+)$/);
     if (!match || match[1] !== FORM_ID) return res.status(404).end();
 
-    // Form 38 uses the REST entry's structured file references. Form 49
-    // places its photo fields in form sections, so locate those same REST
-    // references recursively rather than relying on OData filename strings.
+    // Form 49 REST returns structured file arrays in nested sections.
+    // Keep Form 38's proven file reference and download handling unchanged.
     const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
-    const photoFields = [
-      "DogProfile_Photo", "Intake_Photo1", "Intake_Photo22",
-      "Intake_Photo3", "Intake_Photo4",
-    ];
-    const findField = (node: unknown, name: string, depth = 0): unknown => {
-      if (!node || typeof node !== "object" || depth > 12) return undefined;
-      if (Array.isArray(node)) {
-        for (const item of node) {
-          const found = findField(item, name, depth + 1);
-          if (found != null) return found;
-        }
-        return undefined;
-      }
-      const record = node as Record<string, unknown>;
-      if (record[name] != null) return record[name];
-      for (const value of Object.values(record)) {
-        const found = findField(value, name, depth + 1);
-        if (found != null) return found;
-      }
-      return undefined;
-    };
     const normalizeFiles = (value: unknown): ReturnType<typeof collectFileRefs> => {
       if (value == null) return [];
       const items = Array.isArray(value) ? value : [value];
@@ -55,33 +33,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return [];
       });
     };
+    const restEntry = entry as unknown as {
+      DogProfile?: { Photo?: unknown };
+      Intake?: { Photo1?: unknown; Photo22?: unknown; Photo3?: unknown; Photo4?: unknown };
+    };
     const files = FORM_ID === "49"
-      ? photoFields.flatMap((name) => normalizeFiles(findField(entry, name)))
+      ? [
+          restEntry.DogProfile?.Photo,
+          restEntry.Intake?.Photo1,
+          restEntry.Intake?.Photo22,
+          restEntry.Intake?.Photo3,
+          restEntry.Intake?.Photo4,
+        ].flatMap(normalizeFiles)
       : collectFileRefs(entry);
     if (FORM_ID === "49" && !files.length && debug) {
       return res.status(200).json({
-        ok: false, stage: "rest_photo_fields_missing",
+        ok: false, stage: "rest_photo_fields_empty",
         formId: FORM_ID, entryNumber: match[2], photoIndex: index,
-        searchedFields: photoFields,
-        // Field names and structural types only; never expose entry values.
-        restShape: (() => {
-          const fields: Array<{ path: string; type: string }> = [];
-          const walk = (node: unknown, path: string, depth: number) => {
-            if (!node || typeof node !== "object" || depth > 5 || fields.length >= 120) return;
-            for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
-              const fieldPath = path ? path + "." + key : key;
-              const type = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
-              if (/photo|image|picture|file|upload|intake|profile/i.test(key)) {
-                fields.push({ path: fieldPath, type });
-              }
-              if (value && typeof value === "object" && !Array.isArray(value)) {
-                walk(value, fieldPath, depth + 1);
-              }
-            }
-          };
-          walk(entry, "", 0);
-          return { topLevelFields: Object.keys(entry as object).slice(0, 80), photoCandidates: fields };
-        })(),
       });
     }
     const file = files[index];
