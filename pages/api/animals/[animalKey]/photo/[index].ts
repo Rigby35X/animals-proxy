@@ -20,20 +20,51 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const match = animalKey.match(/^dog-(\d+)-(\d+)$/);
     if (!match || match[1] !== FORM_ID) return res.status(404).end();
 
-    // Use the same authenticated REST entry and file retrieval path as Form 38.
-    // Form 49 has different photo field names; retain the original field fallbacks.
+    // Form 38 uses the REST entry's structured file references. Form 49
+    // places its photo fields in form sections, so locate those same REST
+    // references recursively rather than relying on OData filename strings.
     const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
-    const form49Entry = entry as unknown as Record<string, unknown>;
+    const photoFields = [
+      "DogProfile_Photo", "Intake_Photo1", "Intake_Photo22",
+      "Intake_Photo3", "Intake_Photo4",
+    ];
+    const findField = (node: unknown, name: string, depth = 0): unknown => {
+      if (!node || typeof node !== "object" || depth > 12) return undefined;
+      if (Array.isArray(node)) {
+        for (const item of node) {
+          const found = findField(item, name, depth + 1);
+          if (found != null) return found;
+        }
+        return undefined;
+      }
+      const record = node as Record<string, unknown>;
+      if (record[name] != null) return record[name];
+      for (const value of Object.values(record)) {
+        const found = findField(value, name, depth + 1);
+        if (found != null) return found;
+      }
+      return undefined;
+    };
+    const normalizeFiles = (value: unknown): ReturnType<typeof collectFileRefs> => {
+      if (value == null) return [];
+      const items = Array.isArray(value) ? value : [value];
+      return items.flatMap((item) => {
+        if (!item) return [];
+        if (typeof item === "string") return [{ FileName: item }];
+        if (typeof item === "object") return [item as ReturnType<typeof collectFileRefs>[number]];
+        return [];
+      });
+    };
     const files = FORM_ID === "49"
-      ? collectFileRefs({
-          ...entry,
-          MainPhoto: form49Entry.DogProfile_Photo ?? entry.MainPhoto,
-          AdditionalPhoto1: form49Entry.Intake_Photo1 ?? entry.AdditionalPhoto1,
-          AdditionalPhoto2: form49Entry.Intake_Photo22 ?? entry.AdditionalPhoto2,
-          AdditionalPhoto3: form49Entry.Intake_Photo3 ?? entry.AdditionalPhoto3,
-          AdditionalPhoto4: form49Entry.Intake_Photo4 ?? entry.AdditionalPhoto4,
-        })
+      ? photoFields.flatMap((name) => normalizeFiles(findField(entry, name)))
       : collectFileRefs(entry);
+    if (FORM_ID === "49" && !files.length && debug) {
+      return res.status(200).json({
+        ok: false, stage: "rest_photo_fields_missing",
+        formId: FORM_ID, entryNumber: match[2], photoIndex: index,
+        searchedFields: photoFields,
+      });
+    }
     const file = files[index];
     if (!file) return res.status(404).end();
 
