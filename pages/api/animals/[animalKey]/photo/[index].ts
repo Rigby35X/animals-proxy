@@ -20,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const match = animalKey.match(/^dog-(\d+)-(\d+)$/);
     if (!match || match[1] !== FORM_ID) return res.status(404).end();
 
-    let files: Array<{ FileName?: string; Url?: string; url?: string; Id?: string | number }> = [];
+    let files: Array<{ FileName?: string; Url?: string; url?: string; Id?: string | number; Name?: string }> = [];
     if (FORM_ID === "49") {
       const feedUrl = (process.env.PUBLIC_ANIMALS_ODATA_URL || "").trim();
       if (!feedUrl) return res.status(500).end();
