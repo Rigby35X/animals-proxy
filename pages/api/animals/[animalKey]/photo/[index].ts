@@ -63,6 +63,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ok: false, stage: "rest_photo_fields_missing",
         formId: FORM_ID, entryNumber: match[2], photoIndex: index,
         searchedFields: photoFields,
+        // Field names and structural types only; never expose entry values.
+        restShape: (() => {
+          const fields: Array<{ path: string; type: string }> = [];
+          const walk = (node: unknown, path: string, depth: number) => {
+            if (!node || typeof node !== "object" || depth > 5 || fields.length >= 120) return;
+            for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+              const fieldPath = path ? path + "." + key : key;
+              const type = Array.isArray(value) ? "array" : value === null ? "null" : typeof value;
+              if (/photo|image|picture|file|upload|intake|profile/i.test(key)) {
+                fields.push({ path: fieldPath, type });
+              }
+              if (value && typeof value === "object" && !Array.isArray(value)) {
+                walk(value, fieldPath, depth + 1);
+              }
+            }
+          };
+          walk(entry, "", 0);
+          return { topLevelFields: Object.keys(entry as object).slice(0, 80), photoCandidates: fields };
+        })(),
       });
     }
     const file = files[index];
