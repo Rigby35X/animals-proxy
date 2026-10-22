@@ -10,6 +10,7 @@ export type PublicAnimal = {
   status: string;
   litter: string;
   birthday: string;
+  age?: string;
   breed: string;
   gender: string;
   size: string;

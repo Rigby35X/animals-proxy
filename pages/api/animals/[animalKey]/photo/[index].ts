@@ -20,8 +20,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const match = animalKey.match(/^dog-(\d+)-(\d+)$/);
     if (!match || match[1] !== FORM_ID) return res.status(404).end();
 
+    // Form 49 REST returns structured file arrays in nested sections.
+    // Keep Form 38's proven file reference and download handling unchanged.
     const entry = await fetchEntryByNumber(FORM_ID, match[2], API_KEY);
-    const file = collectFileRefs(entry)[index];
+    const normalizeFiles = (value: unknown): ReturnType<typeof collectFileRefs> => {
+      if (value == null) return [];
+      const items = Array.isArray(value) ? value : [value];
+      return items.flatMap((item) => {
+        if (!item) return [];
+        if (typeof item === "string") return [{ FileName: item }];
+        if (typeof item === "object") return [item as ReturnType<typeof collectFileRefs>[number]];
+        return [];
+      });
+    };
+    const restEntry = entry as unknown as {
+      DogProfile?: { Photo?: unknown };
+      Intake?: { Photo1?: unknown; Photo22?: unknown; Photo3?: unknown; Photo4?: unknown };
+      AdditionalDogPhotos?: { Photo1?: unknown; Photo2?: unknown; Photo3?: unknown; Photo4?: unknown };
+    };
+    const files = FORM_ID === "49"
+      ? [
+          restEntry.DogProfile?.Photo,
+          restEntry.AdditionalDogPhotos?.Photo1 ?? restEntry.Intake?.Photo1,
+          restEntry.AdditionalDogPhotos?.Photo2 ?? restEntry.Intake?.Photo22,
+          restEntry.AdditionalDogPhotos?.Photo3 ?? restEntry.Intake?.Photo3,
+          restEntry.AdditionalDogPhotos?.Photo4 ?? restEntry.Intake?.Photo4,
+        ].flatMap(normalizeFiles)
+      : collectFileRefs(entry);
+    if (FORM_ID === "49" && !files.length && debug) {
+      return res.status(200).json({
+        ok: false, stage: "rest_photo_fields_empty",
+        formId: FORM_ID, entryNumber: match[2], photoIndex: index,
+      });
+    }
+    const file = files[index];
     if (!file) return res.status(404).end();
 
     const directUrl = file.Url || file.url;

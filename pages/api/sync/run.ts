@@ -9,6 +9,9 @@ import {
   replaceImagesFromCognitoFiles
 } from "../../../lib/shopify";
 import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../lib/map";
+import { mapForm49 } from "./form49-audit";
+import { form49Metafields, form49Tags } from "../../../lib/form49-shopify-fields";
+import { addMissingForm49Images } from "../../../lib/shopify";
 
 const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
 const COGNITO_API_KEY = (process.env.COGNITO_API_KEY || "").trim();
@@ -32,7 +35,13 @@ async function fetchEntriesWithFallback(req: NextApiRequest): Promise<any[]> {
 
 export default async function handler(req, res) {
   try {
-    if (req.method !== "POST") return res.status(405).end();
+    if (req.method !== "POST" && req.method !== "GET") return res.status(405).end();
+    // Vercel Cron sends GET with this header when CRON_SECRET is configured.
+    // Deny unauthenticated requests rather than expose Shopify mutations publicly.
+    const secret = process.env.CRON_SECRET;
+    if (!secret || req.headers.authorization !== "Bearer " + secret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     if (!FORM_ID || !COGNITO_API_KEY) {
       return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
     }
@@ -40,6 +49,37 @@ export default async function handler(req, res) {
     const entries = await fetchEntriesWithFallback(req);
     // ... rest of your upsert loop unchanged ...
 
+
+
+    if (FORM_ID === "49") {
+      const host = String(req.headers["x-forwarded-host"] || req.headers.host || "");
+      if (!/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(host)) throw new Error("Invalid host");
+      const origin = "https://" + host;
+      let processed = 0;
+      let skipped = 0;
+      const errors: Array<{handle: string; error: string}> = [];
+      for (const entry of entries) {
+        const dog = mapForm49(entry);
+        if (!dog) { skipped++; continue; }
+        try {
+          const existing = await findProductByHandle(dog.handle);
+          const tags = form49Tags(dog.status);
+          const id = await upsertProduct({
+            id: existing?.id, handle: dog.handle, title: dog.name,
+            bodyHtml: dog.story, tags, status: "ACTIVE",
+          });
+          await setMetafields(id, form49Metafields(dog));
+          const urls = Array.from({ length: dog.photo_count }, (_, i) =>
+            origin + "/api/animals/" + dog.handle + "/photo/" + i
+          );
+          await addMissingForm49Images(id, urls);
+          processed++;
+        } catch (error: any) {
+          errors.push({ handle: dog.handle, error: error?.message || "sync_failed" });
+        }
+      }
+      return res.status(errors.length ? 207 : 200).json({ form_id: "49", processed, skipped, errors });
+    }
 
     let processed = 0;
     for (const entry of entries) {

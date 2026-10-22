@@ -103,7 +103,7 @@ export function fileIdFromRef(ref: CognitoFileRef): string {
     .filter(Boolean)
     .map(String)
     .join(" ");
-  const match = text.match(/(F-[A-Za-z0-9_-]+)/);
+  const match = text.match(/\((F-[^)]+)\)/) || text.match(/(F-[A-Za-z0-9_-]+)/);
   return match?.[1] || "";
 }
 

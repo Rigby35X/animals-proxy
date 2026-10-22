@@ -1,159 +1,48 @@
-// pages/api/cognito/webhook.js
-import { findProductByHandle, createProduct, updateProduct, setMetafields } from '../shopify-helpers.js';
+import { form49Metafields, form49Tags } from '../../../lib/form49-shopify-fields';
+import { fetchEntryByNumber } from '../../../lib/cognito';
+import { mapForm49 } from '../sync/form49-audit';
+import { findProductByHandle, upsertProduct, setMetafields, addMissingForm49Images } from '../../../lib/shopify';
 
+// The existing Cognito webhook is retained, now with Form 49 field mapping.
+// Form 49 notifications can contain either the full entry or just its entry ID.
 export default async function handler(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ error: 'Method not allowed' });
+    // Cognito Post JSON Data can call a URL containing the shared token.
+    // Never accept webhook writes without validating the existing secret.
+    const secret = process.env.COGNITO_WEBHOOK_SECRET;
+    const supplied = String(req.query.token || '');
+    if (!secret || !supplied || supplied !== secret) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
+    const body = req.body || {};
+    const rawId = String(body.Entry?.Number ?? body.Id ?? body.Number ?? '').trim();
+    const number = rawId.replace(/^49-/, '');
+    if (!/^\\d+$/.test(number)) return res.status(400).json({ error: 'Missing Form 49 entry number' });
 
-    const entry = req.body;
-    console.log('Received Cognito entry:', entry.Id, entry.DogName);
-    
-    if (!entry.DogName) {
-      return res.status(400).json({ error: 'Missing DogName' });
-    }
+    // Fetch the current full record so partial webhook payloads don't erase dog fields.
+    const apiKey = process.env.COGNITO_API_KEY;
+    if (!apiKey) throw new Error('Missing COGNITO_API_KEY');
+    const entry = await fetchEntryByNumber('49', number, apiKey);
+    const dog = mapForm49(entry);
+    if (!dog) return res.status(422).json({ error: 'Could not map Form 49 entry' });
 
-    // Create handle: tj-danger-tj-danger pattern
-    const handle = createHandle(entry.DogName);
-    
-    // Check if product exists
-    const existingProduct = await findProductByHandle(handle);
-    
-    // Create tags based on availability status
-    const tags = createTags(entry);
-    
-    const productInput = {
-      title: entry.DogName,
-      bodyHtml: entry.MyStory || '',
-      tags: tags,
-      handle: handle,
-      status: 'ACTIVE'
-    };
-
-    let product;
-    if (existingProduct) {
-      productInput.id = existingProduct.id;
-      product = await updateProduct(productInput);
-    } else {
-      product = await createProduct(productInput);
-    }
-
-    // Set metafields (breed, birthday, etc.)
-    const metafields = createMetafields(entry);
-    if (metafields.length > 0) {
-      await setMetafields(product.id, metafields);
-    }
-
-    console.log('Successfully processed:', product.handle);
-
-    return res.status(200).json({ 
-      success: true, 
-      productId: product.id,
-      handle: product.handle,
-      dogName: entry.DogName,
-      status: entry.Code
+    const existing = await findProductByHandle(dog.handle);
+    const tags = form49Tags(dog.status);
+    const id = await upsertProduct({
+      id: existing?.id, handle: dog.handle, title: dog.name,
+      bodyHtml: dog.story, tags, status: 'ACTIVE',
     });
-
+    await setMetafields(id, form49Metafields(dog));
+    const host = String(req.headers['x-forwarded-host'] || req.headers.host || '');
+    if (!/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(host)) throw new Error('Invalid host');
+    const urls = Array.from({ length: dog.photo_count }, (_, i) =>
+      'https://' + host + '/api/animals/' + dog.handle + '/photo/' + i
+    );
+    await addMissingForm49Images(id, urls);
+    return res.status(200).json({ success: true, handle: dog.handle, productId: id });
   } catch (error) {
-    console.error('Webhook error:', error);
-    return res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message 
-    });
+    console.error('Form 49 webhook sync failed:', error);
+    return res.status(500).json({ error: 'Form 49 webhook sync failed' });
   }
-}
-
-function createHandle(dogName) {
-  const slug = dogName.toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '') // Remove special chars  
-    .replace(/\s+/g, '-')         // Spaces to hyphens
-    .replace(/-+/g, '-')          // Multiple hyphens to single
-    .replace(/^-|-$/g, '');       // Trim edge hyphens
-  
-  return `${slug}-${slug}`;
-}
-
-function createTags(entry) {
-  const tags = ['mbpr-managed'];
-  
-  // Available now statuses
-  const availableNow = [
-    'Available: Now',
-    'Available Now: Mama\'s'
-  ];
-  
-  if (entry.Code && availableNow.includes(entry.Code)) {
-    tags.push('mbpr-available');
-  }
-  
-  return tags;
-}
-
-function createMetafields(entry) {
-  const metafields = [];
-  const ns = 'mbpr';
-  
-  if (entry.LitterName) {
-    metafields.push({
-      namespace: ns,
-      key: 'litter',
-      type: 'single_line_text_field',
-      value: String(entry.LitterName)
-    });
-  }
-  
-  if (entry.PupBirthday) {
-    try {
-      const date = new Date(entry.PupBirthday);
-      if (!isNaN(date.getTime())) {
-        metafields.push({
-          namespace: ns,
-          key: 'birthday',
-          type: 'date',
-          value: date.toISOString().slice(0, 10)
-        });
-      }
-    } catch (e) {
-      console.warn('Invalid birthday format:', entry.PupBirthday);
-    }
-  }
-  
-  if (entry.Breed) {
-    metafields.push({
-      namespace: ns,
-      key: 'breed', 
-      type: 'single_line_text_field',
-      value: String(entry.Breed)
-    });
-  }
-  
-  if (entry.Gender) {
-    metafields.push({
-      namespace: ns,
-      key: 'gender',
-      type: 'single_line_text_field', 
-      value: String(entry.Gender)
-    });
-  }
-  
-  if (entry.EstimatedSizeWhenGrown) {
-    metafields.push({
-      namespace: ns,
-      key: 'adult_size',
-      type: 'single_line_text_field',
-      value: String(entry.EstimatedSizeWhenGrown)
-    });
-  }
-  
-  if (entry.Code) {
-    metafields.push({
-      namespace: ns,
-      key: 'availability',
-      type: 'single_line_text_field',
-      value: String(entry.Code)
-    });
-  }
-  
-  return metafields;
 }
