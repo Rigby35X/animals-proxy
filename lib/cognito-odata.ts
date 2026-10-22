@@ -1,3 +1,4 @@
+import { fetchEntryByNumber } from "./cognito";
 import type { PublicAnimal } from "./public-animal";
 
 function clean(value: unknown): string {
@@ -106,6 +107,21 @@ export function odataToPublicAnimal(formId: string, row: any, publicBaseUrl = ""
   };
 }
 
+// For Form 49, the REST entry is the source of truth for nested photo fields.
+// Count files using the exact same order as the photo endpoint, so /photo/N
+// never points at a different file when a field is empty.
+function form49PhotoCount(entry: any): number {
+  const normalize = (value: any): any[] =>
+    (Array.isArray(value) ? value : value == null ? [] : [value]).filter(Boolean);
+  return [
+    entry?.DogProfile?.Photo,
+    entry?.AdditionalDogPhotos?.Photo1 ?? entry?.Intake?.Photo1,
+    entry?.AdditionalDogPhotos?.Photo2 ?? entry?.Intake?.Photo22,
+    entry?.AdditionalDogPhotos?.Photo3 ?? entry?.Intake?.Photo3,
+    entry?.AdditionalDogPhotos?.Photo4 ?? entry?.Intake?.Photo4,
+  ].reduce((total, value) => total + normalize(value).length, 0);
+}
+
 // Public website feed: Cognito OData -> normalized read-only animal records.
 export async function fetchPublicAnimalsFromOData(formId: string, publicBaseUrl = ""): Promise<PublicAnimal[]> {
   const url = (process.env.PUBLIC_ANIMALS_ODATA_URL || "").trim();
@@ -129,9 +145,24 @@ export async function fetchPublicAnimalsFromOData(formId: string, publicBaseUrl 
     throw new Error("Cognito OData returned non-JSON content");
   }
 
-  return odataRows(payload)
+  const animals = odataRows(payload)
     .filter(odataIsAvailable)
     .map((row) => odataToPublicAnimal(formId, row, publicBaseUrl))
-    .filter((animal) => animal.entry_id && animal.animal_key)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .filter((animal) => animal.entry_id && animal.animal_key);
+
+  if (formId === "49") {
+    const apiKey = (process.env.COGNITO_API_KEY || "").trim();
+    if (!apiKey) throw new Error("Missing COGNITO_API_KEY for Form 49 photo mapping");
+    // Fail the preview feed rather than silently publish an incomplete gallery.
+    await Promise.all(animals.map(async (animal) => {
+      const entry = await fetchEntryByNumber(formId, animal.entry_id, apiKey);
+      const count = form49PhotoCount(entry);
+      animal.photos = Array.from({ length: count }, (_, index) =>
+        publicBaseUrl + "/api/animals/" + animal.animal_key + "/photo/" + index
+      );
+      animal.primary_photo = animal.photos[0] || "";
+    }));
+  }
+
+  return animals.sort((a, b) => a.name.localeCompare(b.name));
 }
