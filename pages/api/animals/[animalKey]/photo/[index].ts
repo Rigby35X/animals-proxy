@@ -36,14 +36,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const restEntry = entry as unknown as {
       DogProfile?: { Photo?: unknown };
       Intake?: { Photo1?: unknown; Photo22?: unknown; Photo3?: unknown; Photo4?: unknown };
+      AdditionalDogPhotos?: { Photo1?: unknown; Photo2?: unknown; Photo3?: unknown; Photo4?: unknown };
     };
     const files = FORM_ID === "49"
       ? [
           restEntry.DogProfile?.Photo,
-          restEntry.Intake?.Photo1,
-          restEntry.Intake?.Photo22,
-          restEntry.Intake?.Photo3,
-          restEntry.Intake?.Photo4,
+          restEntry.AdditionalDogPhotos?.Photo1 ?? restEntry.Intake?.Photo1,
+          restEntry.AdditionalDogPhotos?.Photo2 ?? restEntry.Intake?.Photo22,
+          restEntry.AdditionalDogPhotos?.Photo3 ?? restEntry.Intake?.Photo3,
+          restEntry.AdditionalDogPhotos?.Photo4 ?? restEntry.Intake?.Photo4,
         ].flatMap(normalizeFiles)
       : collectFileRefs(entry);
     if (FORM_ID === "49" && !files.length && debug) {
