@@ -7,6 +7,13 @@ import { findProductByHandle, upsertProduct, setMetafields, addMissingForm49Imag
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
+    // Cognito Post JSON Data can call a URL containing the shared token.
+    // Never accept webhook writes without validating the existing secret.
+    const secret = process.env.COGNITO_WEBHOOK_SECRET;
+    const supplied = String(req.query.token || '');
+    if (!secret || !supplied || supplied !== secret) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     const body = req.body || {};
     const rawId = String(body.Entry?.Number ?? body.Id ?? body.Number ?? '').trim();
     const number = rawId.replace(/^49-/, '');
