@@ -5,6 +5,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchEntries } from "../../../lib/cognito";
 import { mapForm49 } from "./form49-audit";
+import { form49Metafields } from "../../../lib/form49-shopify-fields";
 import {
   findProductByHandle,
   updateForm49ExistingProduct,
@@ -58,15 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await updateForm49ExistingProduct(existing.id, dog.name, dog.story);
     // Include empty values so removed details can be cleared on subsequent runs.
-    await setMetafields(existing.id, [
-      field("age", dog.age),
-      field("availability", dog.status),
-      field("breed", dog.breed),
-      field("gender", dog.gender),
-      field("litter", dog.litter),
-      field("adult_size", dog.size),
-      field("cognito_form49_handle", dog.handle),
-    ]);
+    await setMetafields(existing.id, form49Metafields(dog));
     const urls = Array.from({ length: dog.photo_count }, (_, index) =>
       photoBase + "/api/animals/" + handle + "/photo/" + index
     );
