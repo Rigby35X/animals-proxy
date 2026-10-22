@@ -34,7 +34,7 @@ async function fetchEntriesWithFallback(req: NextApiRequest): Promise<any[]> {
 
 export default async function handler(req, res) {
   try {
-    if (req.method !== "POST") return res.status(405).end();
+    if (req.method !== "POST" && req.method !== "GET") return res.status(405).end();
     if (!FORM_ID || !COGNITO_API_KEY) {
       return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
     }
