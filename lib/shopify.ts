@@ -165,3 +165,47 @@ export async function replaceImagesFromCognitoFiles(productId: string, files: Ar
   }
   console.warn("Cognito files missing Urls; skipping image upload for", productId);
 }
+
+
+/** Form 49 migration: update an existing product only, without changing handle,
+ * Shopify status, tags, variants, pricing, or creating a new product. */
+export async function updateForm49ExistingProduct(id: string, title: string, descriptionHtml: string) {
+  const mutation = `
+    mutation UpdateForm49Product($input: ProductInput!) {
+      productUpdate(input: $input) {
+        product { id }
+        userErrors { field message }
+      }
+    }`;
+  const response: any = await shopGraphQL(mutation, { input: { id, title, descriptionHtml } });
+  const errors = response.data?.productUpdate?.userErrors || [];
+  if (errors.length) throw new Error(JSON.stringify(errors));
+  if (!response.data?.productUpdate?.product?.id) throw new Error("Shopify product update failed");
+}
+
+/** Add Form 49 images without deleting legacy product media. Media with the
+ * stable Form 49 alt marker are skipped on subsequent syncs. */
+export async function addMissingForm49Images(productId: string, urls: string[]) {
+  if (!urls.length) return { added: 0, skipped: 0 };
+  const query = `query Form49Media($id: ID!) {
+    product(id: $id) { media(first: 100) { nodes { id alt } } }
+  }`;
+  const existing: any = await shopGraphQL(query, { id: productId });
+  const alts = new Set((existing.data?.product?.media?.nodes || []).map((m: any) => m.alt));
+  const media = urls.map((url, index) => ({
+    originalSource: url,
+    alt: "mbpr-form49-photo-" + index,
+    mediaContentType: "IMAGE",
+  })).filter(item => !alts.has(item.alt));
+  if (!media.length) return { added: 0, skipped: urls.length };
+  const mutation = `mutation AddForm49Media($productId: ID!, $media: [CreateMediaInput!]!) {
+    productCreateMedia(productId: $productId, media: $media) {
+      media { id }
+      mediaUserErrors { code field message }
+    }
+  }`;
+  const result: any = await shopGraphQL(mutation, { productId, media });
+  const errors = result.data?.productCreateMedia?.mediaUserErrors || [];
+  if (errors.length) throw new Error(JSON.stringify(errors));
+  return { added: media.length, skipped: urls.length - media.length };
+}
