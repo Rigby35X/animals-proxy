@@ -28,10 +28,10 @@ function fileUrl(value: any): string {
 function collectPhotos(row: any): string[] {
   const values = [
     pick(row, "DogProfile_Photo", "MainPhoto", "Main_Photo", "Photo", "PrimaryPhoto"),
-    pick(row, "Intake_Photo1", "AdditionalPhoto1", "Additional_Photo_1"),
-    pick(row, "Intake_Photo22", "AdditionalPhoto2", "Additional_Photo_2"),
-    pick(row, "Intake_Photo3", "AdditionalPhoto3", "Additional_Photo_3"),
-    pick(row, "Intake_Photo4", "AdditionalPhoto4", "Additional_Photo_4"),
+    pick(row, "AdditionalDogPhotos_Photo1", "Intake_Photo1", "AdditionalPhoto1", "Additional_Photo_1"),
+    pick(row, "AdditionalDogPhotos_Photo2", "Intake_Photo22", "AdditionalPhoto2", "Additional_Photo_2"),
+    pick(row, "AdditionalDogPhotos_Photo3", "Intake_Photo3", "AdditionalPhoto3", "Additional_Photo_3"),
+    pick(row, "AdditionalDogPhotos_Photo4", "Intake_Photo4", "AdditionalPhoto4", "Additional_Photo_4"),
   ];
   const urls: string[] = [];
   for (const value of values) {
@@ -96,6 +96,7 @@ export function odataToPublicAnimal(formId: string, row: any, publicBaseUrl = ""
     status: availability || code || "Available",
     litter: clean(pick(row, "DogProfile_LitterName", "LitterName", "Litter_Name", "Litter")),
     birthday: clean(pick(row, "DogProfile_DateOfBirth", "PupBirthday", "Pup_Birthday", "Birthday")),
+    age: clean(pick(row, "DogProfile_Age", "Age")),
     breed: clean(pick(row, "DogProfile_PrimaryBreed", "Breed")),
     gender: clean(pick(row, "DogProfile_Sex", "Gender", "Sex")),
     size: clean(pick(row, "DogProfile_EstimatedAdultSize", "EstimatedSizeWhenGrown", "Estimated_Size_When_Grown", "AdultSize", "Size")),
