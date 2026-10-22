@@ -1,3 +1,4 @@
+import { form49Metafields, form49Tags } from '../../../lib/form49-shopify-fields';
 import { fetchEntryByNumber } from '../../../lib/cognito';
 import { mapForm49 } from '../sync/form49-audit';
 import { findProductByHandle, upsertProduct, setMetafields, addMissingForm49Images } from '../../../lib/shopify';
@@ -27,21 +28,12 @@ export default async function handler(req, res) {
     if (!dog) return res.status(422).json({ error: 'Could not map Form 49 entry' });
 
     const existing = await findProductByHandle(dog.handle);
-    const tags = ['mbpr-managed', 'mbpr-form49'];
-    if (/^(available|vip)/i.test(dog.status)) tags.push('mbpr-available');
-    if (/adopted/i.test(dog.status)) tags.push('mbpr-adopted');
+    const tags = form49Tags(dog.status);
     const id = await upsertProduct({
       id: existing?.id, handle: dog.handle, title: dog.name,
       bodyHtml: dog.story, tags, status: 'ACTIVE',
     });
-    const values = {
-      age: dog.age, availability: dog.status, breed: dog.breed,
-      gender: dog.gender, litter: dog.litter, adult_size: dog.size,
-      cognito_form49_handle: dog.handle,
-    };
-    await setMetafields(id, Object.entries(values).filter(([, value]) => value !== "").map(([key, value]) => ({
-      namespace: 'mbpr', key, type: 'single_line_text_field', value,
-    })));
+    await setMetafields(id, form49Metafields(dog));
     const host = String(req.headers['x-forwarded-host'] || req.headers.host || '');
     if (!/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(host)) throw new Error('Invalid host');
     const urls = Array.from({ length: dog.photo_count }, (_, i) =>
