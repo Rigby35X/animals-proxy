@@ -10,6 +10,7 @@ import {
 } from "../../../lib/shopify";
 import { imageFileRefs, mapMetafields, tagsForCode, toHandle } from "../../../lib/map";
 import { mapForm49 } from "./form49-audit";
+import { form49Metafields, form49Tags } from "../../../lib/form49-shopify-fields";
 import { addMissingForm49Images } from "../../../lib/shopify";
 
 const FORM_ID = (process.env.COGNITO_FORM_ID || "").trim();
@@ -62,21 +63,12 @@ export default async function handler(req, res) {
         if (!dog) { skipped++; continue; }
         try {
           const existing = await findProductByHandle(dog.handle);
-          const tags = ["mbpr-managed", "mbpr-form49"];
-          if (/^(available|vip)/i.test(dog.status)) tags.push("mbpr-available");
-          if (/adopted/i.test(dog.status)) tags.push("mbpr-adopted");
+          const tags = form49Tags(dog.status);
           const id = await upsertProduct({
             id: existing?.id, handle: dog.handle, title: dog.name,
             bodyHtml: dog.story, tags, status: "ACTIVE",
           });
-          const values: Record<string, string> = {
-            age: dog.age, availability: dog.status, breed: dog.breed,
-            gender: dog.gender, litter: dog.litter, adult_size: dog.size,
-            cognito_form49_handle: dog.handle,
-          };
-          await setMetafields(id, Object.entries(values).filter(([, value]) => value !== "").map(([key, value]) => ({
-            namespace: "mbpr", key, value, type: "single_line_text_field",
-          })));
+          await setMetafields(id, form49Metafields(dog));
           const urls = Array.from({ length: dog.photo_count }, (_, i) =>
             origin + "/api/animals/" + dog.handle + "/photo/" + i
           );
