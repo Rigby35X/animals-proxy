@@ -74,7 +74,7 @@ export default async function handler(req, res) {
             gender: dog.gender, litter: dog.litter, adult_size: dog.size,
             cognito_form49_handle: dog.handle,
           };
-          await setMetafields(id, Object.entries(values).map(([key, value]) => ({
+          await setMetafields(id, Object.entries(values).filter(([, value]) => value !== "").map(([key, value]) => ({
             namespace: "mbpr", key, value, type: "single_line_text_field",
           })));
           const urls = Array.from({ length: dog.photo_count }, (_, i) =>
