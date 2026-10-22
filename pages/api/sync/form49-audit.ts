@@ -4,7 +4,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchEntries } from "../../../lib/cognito";
 import { findProductByHandle } from "../../../lib/shopify";
 
-type Dog = {
+export type Dog = {
   handle: string;
   entry_number: string;
   name: string;
@@ -24,7 +24,7 @@ function text(value: unknown): string {
 function fileCount(value: unknown): number {
   return (Array.isArray(value) ? value : value ? [value] : []).filter(Boolean).length;
 }
-function mapForm49(entry: any): Dog | null {
+export function mapForm49(entry: any): Dog | null {
   // REST Id can be a form-prefixed identifier; Entry.Number is also supported.
   const rawId = text(entry?.Entry?.Number ?? entry?.Id ?? entry?.Number);
   const number = rawId.replace(/^49-/, "");
