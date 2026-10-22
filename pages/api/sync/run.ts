@@ -35,6 +35,12 @@ async function fetchEntriesWithFallback(req: NextApiRequest): Promise<any[]> {
 export default async function handler(req, res) {
   try {
     if (req.method !== "POST" && req.method !== "GET") return res.status(405).end();
+    // Vercel Cron sends GET with this header when CRON_SECRET is configured.
+    // Deny unauthenticated requests rather than expose Shopify mutations publicly.
+    const secret = process.env.CRON_SECRET;
+    if (!secret || req.headers.authorization !== "Bearer " + secret) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     if (!FORM_ID || !COGNITO_API_KEY) {
       return res.status(500).json({ error: "Missing COGNITO_FORM_ID or COGNITO_API_KEY env" });
     }
