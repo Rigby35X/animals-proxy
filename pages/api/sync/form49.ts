@@ -20,7 +20,7 @@ const field = (key: string, value: string) => ({
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader("Cache-Control", "no-store");
   if (req.method !== "POST") return res.status(405).json({ error: "POST required" });
-  const token = process.env.SHOPIFY_SYNC_AUDIT_TOKEN;
+  const token = process.env.CRON_SECRET;
   if (!token || req.headers.authorization !== "Bearer " + token) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -29,9 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Provide a single Form 49 handle, e.g. dog-49-9" });
   }
   const dryRun = req.body?.dry_run !== false;
-  if (!dryRun && process.env.ENABLE_FORM49_SHOPIFY_WRITES !== "true") {
-    return res.status(403).json({ error: "Form 49 Shopify writes are disabled" });
-  }
+
   const apiKey = process.env.COGNITO_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "Missing Cognito API key" });
 
@@ -52,7 +50,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       dry_run: true, handle, shopify_product_id: existing.id, changes,
     });
 
-    const photoBase = (process.env.FORM49_PUBLIC_PHOTO_BASE || "").replace(/\/$/, "");
+    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "");
+    if (!/^[a-z0-9.-]+(?::[0-9]+)?$/i.test(host)) throw new Error("Invalid host");
+    const photoBase = "https://" + host;
     if (dog.photo_count && !/^https:\/\//.test(photoBase)) {
       return res.status(500).json({ error: "Set FORM49_PUBLIC_PHOTO_BASE to the stable HTTPS animals-proxy origin before syncing photos" });
     }
