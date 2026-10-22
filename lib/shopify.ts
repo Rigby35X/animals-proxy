@@ -1,5 +1,5 @@
 // lib/shopify.ts
-const API_VERSION = "2024-07";
+const API_VERSION = "2025-10";
 
 type UpsertArgs = {
   id?: string;
@@ -198,14 +198,16 @@ export async function addMissingForm49Images(productId: string, urls: string[]) 
     mediaContentType: "IMAGE",
   })).filter(item => !alts.has(item.alt));
   if (!media.length) return { added: 0, skipped: urls.length };
-  const mutation = `mutation AddForm49Media($productId: ID!, $media: [CreateMediaInput!]!) {
-    productCreateMedia(productId: $productId, media: $media) {
-      media { id }
-      mediaUserErrors { code field message }
+  // Shopify 2025-10: productUpdate accepts new media directly.
+  const mutation = `mutation AddForm49Media($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+    productUpdate(product: $product, media: $media) {
+      product { id }
+      userErrors { field message }
     }
   }`;
-  const result: any = await shopGraphQL(mutation, { productId, media });
-  const errors = result.data?.productCreateMedia?.mediaUserErrors || [];
+  const result: any = await shopGraphQL(mutation, { product: { id: productId }, media });
+  const errors = result.data?.productUpdate?.userErrors || [];
   if (errors.length) throw new Error(JSON.stringify(errors));
+  if (!result.data?.productUpdate?.product?.id) throw new Error("Shopify media update returned no product");
   return { added: media.length, skipped: urls.length - media.length };
 }
