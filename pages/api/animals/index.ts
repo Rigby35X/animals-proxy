@@ -3,7 +3,7 @@ import { fetchPublicAnimalsFromOData } from "../../../lib/cognito-odata";
 import { fetchEntries } from "../../../lib/cognito";
 import { mapForm49 } from "../sync/form49-audit";
 
-const FORM_ID = (process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || process.env.COGNITO_FORM_ID || "").trim();
+const FORM_ID = (process.env.COGNITO_FORM_ID || process.env.PUBLIC_ANIMALS_COGNITO_FORM_ID || "").trim();
 
 function cors(res: NextApiResponse) {
   res.setHeader("Access-Control-Allow-Origin", "*");
